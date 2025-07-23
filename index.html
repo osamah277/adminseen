@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Admin Movie Manager</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: auto; }
+    input, select, button { width: 100%; padding: 10px; margin: 8px 0; }
+    #message { margin-top: 10px; color: green; }
+    #error { margin-top: 10px; color: red; }
+    #signoutBtn { margin-bottom: 20px; }
+    ul { list-style: none; padding-left: 0; }
+    li { padding: 8px; border-bottom: 1px solid #ccc; display: flex; justify-content: space-between; align-items: center; }
+    .item-info { flex-grow: 1; }
+    .delete-btn { background: #f44336; border: none; color: white; padding: 6px 12px; cursor: pointer; }
+    .delete-btn:hover { background: #d32f2f; }
+    .tv-details { display: none; }
+  </style>
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+</head>
+<body>
+  <h2 id="header">Admin Sign In</h2>
+
+  <div id="authDiv">
+    <input type="email" id="email" placeholder="Email" />
+    <input type="password" id="password" placeholder="Password" />
+    <button id="signInBtn">Sign In</button>
+  </div>
+
+  <div id="adminDiv" style="display:none;">
+    <button id="signoutBtn">Sign Out</button>
+    
+    <h3>Add Movie / TV Show</h3>
+    <input type="text" id="title" placeholder="Title" />
+    
+    <select id="type">
+      <option value="movie">Movie</option>
+      <option value="tvshow">TV Show</option>
+    </select>
+
+    <!-- TV Show details -->
+    <div class="tv-details" id="tvDetails">
+      <input type="number" id="seasons" placeholder="Number of Seasons" min="1" />
+      <input type="number" id="episodes" placeholder="Number of Episodes" min="1" />
+    </div>
+
+    <button id="addMovieBtn">Add to Firebase</button>
+
+    <h3>All Movies & TV Shows</h3>
+    <ul id="itemsList"></ul>
+  </div>
+
+  <p id="message"></p>
+  <p id="error"></p>
+
+  <script>
+    // Replace with your Firebase config
+    const firebaseConfig = {
+      apiKey: "AIzaSyChgVIPxsSrmsKo8cL2gpMMf9bUioLKgd4",
+      authDomain: "seen-it-d5731.firebaseapp.com",
+      projectId: "seen-it-d5731",
+      storageBucket: "seen-it-d5731.firebasestorage.app",
+      messagingSenderId: "539164904581",
+      appId: "1:539164904581:web:b17edd8d48c333be61edec",
+      measurementId: "G-YEJBLCXM0G"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+
+    const ADMIN_EMAIL = "admin@example.com";
+
+    const authDiv = document.getElementById('authDiv');
+    const adminDiv = document.getElementById('adminDiv');
+    const signInBtn = document.getElementById('signInBtn');
+    const signoutBtn = document.getElementById('signoutBtn');
+    const emailInput = document.getElementById('email');
+    const passwordInput = document.getElementById('password');
+    const titleInput = document.getElementById('title');
+    const typeSelect = document.getElementById('type');
+    const addMovieBtn = document.getElementById('addMovieBtn');
+    const itemsList = document.getElementById('itemsList');
+    const messageP = document.getElementById('message');
+    const errorP = document.getElementById('error');
+    const headerH2 = document.getElementById('header');
+    const tvDetailsDiv = document.getElementById('tvDetails');
+    const seasonsInput = document.getElementById('seasons');
+    const episodesInput = document.getElementById('episodes');
+
+    let unsubscribe = null;
+
+    function clearMessages() {
+      messageP.textContent = "";
+      errorP.textContent = "";
+    }
+    function showError(msg) {
+      errorP.textContent = msg;
+      messageP.textContent = "";
+    }
+    function showMessage(msg) {
+      messageP.textContent = msg;
+      errorP.textContent = "";
+    }
+
+    // Show/hide TV fields
+    typeSelect.addEventListener("change", () => {
+      tvDetailsDiv.style.display = typeSelect.value === "tvshow" ? "block" : "none";
+    });
+
+    signInBtn.addEventListener('click', () => {
+      clearMessages();
+      const email = emailInput.value.trim();
+      const password = passwordInput.value;
+      if (!email || !password) {
+        showError("Please enter email and password.");
+        return;
+      }
+      auth.signInWithEmailAndPassword(email, password)
+        .then(() => {
+          clearMessages();
+          emailInput.value = "";
+          passwordInput.value = "";
+        })
+        .catch(err => showError("Sign in error: " + err.message));
+    });
+
+    signoutBtn.addEventListener('click', () => {
+      auth.signOut();
+      clearMessages();
+      if (unsubscribe) unsubscribe();
+    });
+
+    addMovieBtn.addEventListener('click', () => {
+      clearMessages();
+      const title = titleInput.value.trim();
+      const type = typeSelect.value;
+      const seasons = parseInt(seasonsInput.value) || null;
+      const episodes = parseInt(episodesInput.value) || null;
+
+      if (!title) {
+        showError("Please enter a title.");
+        return;
+      }
+
+      const docData = {
+        title,
+        type,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      };
+
+      if (type === "tvshow") {
+        if (seasons) docData.seasons = seasons;
+        if (episodes) docData.episodes = episodes;
+      }
+
+      db.collection("movies").add(docData).then(() => {
+        showMessage(`Added "${title}" successfully!`);
+        titleInput.value = "";
+        typeSelect.value = "movie";
+        tvDetailsDiv.style.display = "none";
+        seasonsInput.value = "";
+        episodesInput.value = "";
+      }).catch(err => showError("Error adding item: " + err.message));
+    });
+
+    function deleteItem(docId, title) {
+      if (!confirm(`Delete "${title}"?`)) return;
+      db.collection("movies").doc(docId).delete()
+        .then(() => showMessage(`Deleted "${title}"`))
+        .catch(err => showError("Error deleting item: " + err.message));
+    }
+
+    function renderList(snapshot) {
+      itemsList.innerHTML = "";
+      if (snapshot.empty) {
+        itemsList.innerHTML = "<li>No movies or TV shows found.</li>";
+        return;
+      }
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        const li = document.createElement('li');
+        const infoDiv = document.createElement('div');
+        infoDiv.className = "item-info";
+
+        let infoText = `${data.title} (${data.type})`;
+        if (data.type === "tvshow") {
+          infoText += ` — ${data.seasons || "?"} seasons, ${data.episodes || "?"} episodes`;
+        }
+        infoDiv.textContent = infoText;
+
+        const delBtn = document.createElement('button');
+        delBtn.textContent = "Delete";
+        delBtn.className = "delete-btn";
+        delBtn.onclick = () => deleteItem(doc.id, data.title);
+
+        li.appendChild(infoDiv);
+        li.appendChild(delBtn);
+        itemsList.appendChild(li);
+      });
+    }
+
+    auth.onAuthStateChanged(user => {
+      clearMessages();
+      if (user) {
+        if (user.email === ADMIN_EMAIL) {
+          authDiv.style.display = "none";
+          adminDiv.style.display = "block";
+          headerH2.textContent = `Welcome Admin: ${user.email}`;
+
+          unsubscribe = db.collection("movies")
+            .orderBy("createdAt", "desc")
+            .onSnapshot(renderList, err => showError("Error loading items: " + err.message));
+        } else {
+          authDiv.style.display = "none";
+          adminDiv.style.display = "none";
+          headerH2.textContent = "Not authorized - you are not admin.";
+          showError("You are signed in but not authorized as admin.");
+        }
+      } else {
+        authDiv.style.display = "block";
+        adminDiv.style.display = "none";
+        headerH2.textContent = "Admin Sign In";
+        if (unsubscribe) unsubscribe();
+      }
+    });
+  </script>
+</body>
+</html>
